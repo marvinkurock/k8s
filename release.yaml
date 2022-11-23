@@ -1,0 +1,103 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: service-authentication
+spec:
+  releaseName: service-authentication
+  chart:
+    spec:
+      chart: ./@charts/microservice@v1
+      sourceRef:
+        kind: GitRepository
+        name: flux-system
+        namespace: flux-system
+      version: 1.2.*
+  #dependsOn:
+  #  - name: traefikee
+  #    namespace: traefikee
+  interval: 5m
+  install:
+    remediation:
+      retries: 3
+  #valuesFrom:
+  values:
+    replicaCount: 1
+    image:
+      repository: 597031446072.dkr.ecr.eu-central-1.amazonaws.com/service-authentication
+      pullPolicy: IfNotPresent
+      tag: "0.1.690" #[version]
+    ingress:
+      enabled: true
+      host: api.${domain}
+      path: /authentication
+      requireJWT: false
+    env:
+      # fromSecret: hc-env
+      normal:
+        APP_ENV: ${env}
+        APP_SECRET: 810ff1098e5fa53c627b3641db497b21
+        JWT_SECRET_KEY: "/var/config/jwt/private.pem"
+        JWT_PUBLIC_KEY: "/var/config/jwt/public.pem"
+        CORS_ALLOW_ORIGIN: "*"
+        MAILER_DSN: smtp://localhost:1025
+        COMMERCETOOLS_CLIENT_ID: HHHJ7FLNP5zH6vEYz-mC2V6E
+        COMMERCETOOLS_API_URL: https://api.europe-west1.gcp.commercetools.com
+        COMMERCETOOLS_AUTH_URL: https://auth.europe-west1.gcp.commercetools.com
+        COMMERCETOOLS_MC_API_URL: https://mc-api.europe-west1.gcp.commercetools.com
+        COMMERCETOOLS_OIDC_JWKS_URL: https://mc-api.europe-west1.gcp.commercetools.com/.well-known/jwks.json
+        COMMERCETOOLS_PROJECT_KEY: "haute_cuisine_${env}"
+        REDIS_HOST: haute-cuisine-${env}-cluster.oamqrx.0001.euc1.cache.amazonaws.com
+        REFRESH_TOKEN_TTL: 2592000 # 1 month
+        MESSENGER_TRANSPORT_SENDER_SNS_TOPIC_ARN: arn:aws:sns:eu-central-1:${aws_acc_id}:haute-cuisine-${env}-sorted-messages.fifo
+        MESSENGER_TRANSPORT_MESSENGER_TRANSPORT_RECEIVER_DSN: https://sqs.eu-central-1.amazonaws.com/${aws_acc_id}/haute-cuisine-${env}-authentication-service.fifo
+        MESSENGER_TRANSPORT_POLL_TIMEOUT: 20
+        AWS_REGION: eu-central-1
+        PASSWORD_RESET_TOKEN_TTL_MIN: 1440
+        DATADOG_AGENT_HOST: datadog-agent.datadog
+        DD_PROFILING_ENABLED: true
+        DD_SERVICE: "authentication-service"
+        DD_ENV: ${env}
+        DD_VERSION: 1.3.2
+    mounts:
+      volumes:
+        - name: jwt
+          secret:
+            secretName: service-authentication-jwt
+      phpMounts:
+        - name: jwt
+          mountPath: /var/config/jwt
+      nginxMounts:
+    worker:
+      - name: worker
+        command: '["bin/console", "messenger:consume", "events", "-vv" ]'
+        resources:
+          requests:
+            cpu: 50m
+            memory: 100Mi
+          limits:
+            cpu: 100m
+            memory: 150Mi
+    autoscaling:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 2
+      targetCPUUtilizationPercentage: 80
+    autoscaling_worker:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPUUtilizationPercentage: 80
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    resources_nginx:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
